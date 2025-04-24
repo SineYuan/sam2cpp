@@ -50,7 +50,7 @@ mkdir mnn_models
 
 MNNConvert -f ONNX --modelFile path/to/sam2_model/image_decoder.onnx --MNNModel mnn_models/image_decoder.mnn --bizCode biz
 
-/MNNConvert -f ONNX --modelFile path/to/sam2_mode/image_encoder.onnx --MNNModel mnn_models/image_encoder.mnn --bizCode biz
+MNNConvert -f ONNX --modelFile path/to/sam2_mode/image_encoder.onnx --MNNModel mnn_models/image_encoder.mnn --bizCode biz
 
 MNNConvert -f ONNX --modelFile path/to/sam2_mode/memory_encoder.onnx --MNNModel mnn_models/memory_encoder.mnn --bizCode biz
 
@@ -208,3 +208,4 @@ The repository includes two demo applications:
 
 - This project is based on the Segment Anything 2 (SAM2) model
 - Uses MNN (Mobile Neural Network) for efficient inference
+- Conversion script modified from [SAM2Export](https://github.com/Aimol-l/SAM2Export)
