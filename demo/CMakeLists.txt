@@ -24,3 +24,10 @@ target_link_libraries(sam2_image_demo
     sam2
     ${OpenCV_LIBS}
 )
+
+add_executable(sam2_video_demo sam2_video_demo.cpp )
+target_link_libraries(sam2_video_demo
+    PRIVATE
+    sam2
+    ${OpenCV_LIBS}
+)
