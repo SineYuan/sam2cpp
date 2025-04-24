@@ -43,9 +43,23 @@ public:
         bool clear_old_points = true
     );
 
+    Result<std::tuple<int, Mask>> add_new_points_or_box(
+        InferenceState& inference_state,
+        const std::vector<uint8_t>& image_buf,
+        int obj_id,
+        const std::vector<Point>& points = {},
+        const std::vector<BBox>& boxes = {},
+        bool clear_old_points = true
+    );
+
     Result<std::tuple<int, std::unordered_map<int, Mask>>> track_step(
         InferenceState& inference_state,
         const std::string& image_path
+    );
+
+    Result<std::tuple<int, std::unordered_map<int, Mask>>> track_step(
+        InferenceState& inference_state,
+        const std::vector<uint8_t>& image_buf
     );
 
 private:

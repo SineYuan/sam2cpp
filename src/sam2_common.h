@@ -21,10 +21,6 @@ struct BBox {
   size_t y_max;
 };
 
-struct Params {
-    std::string model_path;
-};
-  
 // rgb image
 struct Mask {
     std::vector<uint8_t> data;
@@ -34,11 +30,16 @@ struct Mask {
     float score;
 };
 
-enum class Backend {
+enum class InferenceBackend {
   AUTO,
   CPU,
   CUDA,
   OPENCL,
+  METAL,
+};
+
+struct Params {
+  InferenceBackend inference_backend = InferenceBackend::AUTO;
 };
 
 struct ErrorCode {

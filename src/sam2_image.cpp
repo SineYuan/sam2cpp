@@ -46,6 +46,18 @@ Result<std::shared_ptr<ImageEmbedding>> SAM2Image::get_embedding(const std::stri
     return std::make_shared<ImageEmbedding>(std::move(result.value()));
 }
 
+Result<std::shared_ptr<ImageEmbedding>> SAM2Image::get_embedding(const std::vector<uint8_t>& img_buf) {
+    if (!m_pimpl) {
+        return Err<std::shared_ptr<ImageEmbedding>>(ErrorCode{-1, "Implementation not initialized"});
+    }
+    
+    auto result = m_pimpl->get_embedding(img_buf);
+    if (!result.has_value()) {
+        return Err<std::shared_ptr<ImageEmbedding>>(result.error());
+    }
+    return std::make_shared<ImageEmbedding>(std::move(result.value()));
+}
+
 Result<Mask> SAM2Image::predict(const std::shared_ptr<ImageEmbedding>& embedding, const std::vector<Point>& points, const std::vector<BBox>& bboxes) {
     if (!m_pimpl) {
         return Err<Mask>(ErrorCode{-1, "Implementation not initialized"});

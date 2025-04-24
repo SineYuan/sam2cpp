@@ -50,8 +50,10 @@ public:
     Result<bool> init_mem_encoder_atten(const std::vector<TarEntry>& entries, const Params& params);
 
     Result<std::tuple<VARP, int, int>> preprocess_image(const std::string& img_path);
+    Result<std::tuple<VARP, int, int>> preprocess_image(const std::vector<uint8_t>& img_buf);
 
     Result<ImageEmbedding> get_embedding(const std::string& img_path);
+    Result<ImageEmbedding> get_embedding(const std::vector<uint8_t>& img_buf);
     Result<ImageEmbedding> get_embedding(const VARP& image_tensor, int original_height, int original_width);
 
     Result<std::vector<VARP>> predict(const ImageEmbedding& embedding, const std::vector<Point>& points, const std::vector<BBox>& bboxes);

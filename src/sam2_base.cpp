@@ -22,6 +22,22 @@ const int IMG_SIZE = 1024;
 const std::vector<std::string> SAM_IMAGE_DECODER_INPUT_NAMES = {"point_coords", "point_labels", "image_height", "image_width", "image_embed", "high_res_feats_0", "high_res_feats_1"};
 const std::vector<std::string> ETAM_IMAGE_DECODER_INPUT_NAMES = {"point_coords", "point_labels", "image_height", "image_width", "image_embed"};
 
+MNNForwardType get_mnn_forward_type(const Params& params) {
+    switch (params.inference_backend) {
+        case InferenceBackend::AUTO:
+            return MNN_FORWARD_AUTO;
+        case InferenceBackend::CPU:
+            return MNN_FORWARD_CPU;
+        case InferenceBackend::CUDA:
+            return MNN_FORWARD_CUDA;
+        case InferenceBackend::OPENCL:
+            return MNN_FORWARD_OPENCL;
+        case InferenceBackend::METAL:
+            return MNN_FORWARD_METAL;
+        default:
+            return MNN_FORWARD_AUTO;
+    }
+}
 
 SAM2Base::SAM2Base() : img_encoder_session_(nullptr), mem_encoder_session_(nullptr) {}
 SAM2Base::~SAM2Base() {
@@ -45,6 +61,21 @@ Result<std::tuple<VARP, int, int>> SAM2Base::preprocess_image(const std::string&
     */
 
     VARP img = MNN::CV::imread(img_path);
+    if (img == nullptr) {
+        return Err<std::tuple<VARP, int, int>>(ErrorCode{-1, "failed to read image"});
+    }
+    int h, w, c;
+    MNN::CV::getVARPSize(img, &h, &w, &c);
+
+    VARP resized_img = MNN::CV::resize(img, {IMG_SIZE, IMG_SIZE});
+    auto resized_rgb = MNN::CV::cvtColor(resized_img, MNN::CV::COLOR_BGR2RGB);
+
+    return std::make_tuple(resized_rgb, h, w);
+}
+
+Result<std::tuple<VARP, int, int>> SAM2Base::preprocess_image(const std::vector<uint8_t>& img_buf) {
+
+    VARP img = MNN::CV::imdecode(img_buf, MNN::CV::IMREAD_COLOR);
     if (img == nullptr) {
         return Err<std::tuple<VARP, int, int>>(ErrorCode{-1, "failed to read image"});
     }
@@ -92,6 +123,20 @@ Result<ImageEmbedding> SAM2Base::get_embedding(const std::string& img_path) {
     }
 
     auto prep_out = preprocess_image(img_path);
+    if (!prep_out.has_value()) {
+        return Err<ImageEmbedding>(ErrorCode{-1, "failed to preprocess image"});
+    }
+    auto [img, h, w] = prep_out.value();
+
+    return get_embedding(img, h, w);
+}
+
+Result<ImageEmbedding> SAM2Base::get_embedding(const std::vector<uint8_t>& img_buf) {
+    if (!img_encoder_session_) {
+        return Err<ImageEmbedding>(ErrorCode{-1, "image_encoder_session is not initialized"});
+    }
+
+    auto prep_out = preprocess_image(img_buf);
     if (!prep_out.has_value()) {
         return Err<ImageEmbedding>(ErrorCode{-1, "failed to preprocess image"});
     }
@@ -274,7 +319,7 @@ Result<bool> SAM2Base::init_img_encoder_decoder(const std::string& model_path, c
     }
 
     MNN::ScheduleConfig config;
-    config.type = MNN_FORWARD_AUTO;
+    config.type = get_mnn_forward_type(params);
     //config.numThread = params.num_threads;
 
     img_encoder_session_ = img_encoder_interpreter_->createSession(config);
@@ -351,7 +396,7 @@ Result<bool> SAM2Base::init_img_encoder_decoder(const std::vector<TarEntry>& ent
     }
 
     MNN::ScheduleConfig config;
-    config.type = MNN_FORWARD_AUTO;
+    config.type = get_mnn_forward_type(params);
     //config.numThread = params.num_threads;
 
     img_encoder_session_ = img_encoder_interpreter_->createSession(config);
@@ -428,7 +473,7 @@ Result<bool> SAM2Base::init_mem_encoder_atten(const std::string& model_path, con
     }
 
     MNN::ScheduleConfig config;
-    config.type = MNN_FORWARD_AUTO;
+    config.type = get_mnn_forward_type(params);
     //config.numThread = params.num_threads;
     
     mem_encoder_session_ = mem_encoder_interpreter_->createSession(config);
@@ -486,7 +531,7 @@ Result<bool> SAM2Base::init_mem_encoder_atten(const std::vector<TarEntry>& entri
     }
 
     MNN::ScheduleConfig config;
-    config.type = MNN_FORWARD_AUTO;
+    config.type = get_mnn_forward_type(params);
     //config.numThread = params.num_threads;
     
     mem_encoder_session_ = mem_encoder_interpreter_->createSession(config);

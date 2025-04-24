@@ -159,6 +159,28 @@ public:
         return prep_out.value();
     }
 
+    Result<std::tuple<VARP, int, int>> prepare_image_buffer(const std::vector<uint8_t>& img_buf, InferenceState* inference_state = nullptr) {
+        auto prep_out = sam2_base->preprocess_image(img_buf);
+        if (!prep_out.has_value()) {
+            return Err<std::tuple<VARP, int, int>>(
+                ErrorCode{-1, "Failed to preprocess image"}
+            );
+        }
+        auto [img_tensor, h, w] = prep_out.value();
+        
+        // If inference_state is provided, check and update video size
+        if (inference_state) {
+            if (inference_state->m_pimpl->video_size.first == 0 && inference_state->m_pimpl->video_size.second == 0) {
+                inference_state->m_pimpl->video_size = {h, w};
+            } else if (inference_state->m_pimpl->video_size != std::make_pair(h, w)) {
+                return Err<std::tuple<VARP, int, int>>(
+                    ErrorCode{-1, "Image size does not match video size"}
+                );
+            }
+        }
+
+        return prep_out.value();
+    }
 
     Result<VARP> prepare_memory_attention(
         int frame_idx,
@@ -271,27 +293,22 @@ public:
         return std::make_tuple(to_cat_obj_ptrs, obj_frame_idx, obj_pos_list);
     }
 
-    Result<std::tuple<int, Mask>> add_new_points_or_box(
+    // Common processing function for add_new_points_or_box
+    Result<std::tuple<int, Mask>> process_add_new_points_or_box(
         InferenceState& inference_state,
-        const std::string& image_path,
+        const std::tuple<VARP, int, int>& prep_result,
         int obj_id,
-        const std::vector<Point>& points = {},
-        const std::vector<BBox>& boxes = {},
-        bool clear_old_points = true
+        const std::vector<Point>& points,
+        const std::vector<BBox>& boxes,
+        bool clear_old_points
     ) {
         auto start_time = std::chrono::high_resolution_clock::now();
         
-        auto prep_result = prepare_image(image_path, &inference_state);
-        if (!prep_result.has_value()) {
-            return Err<std::tuple<int, Mask>>(prep_result.error());
-        }
-        auto [img_tensor, h, w] = prep_result.value();
+        auto [img_tensor, h, w] = prep_result;
 
         auto object_state = inference_state.m_pimpl->get_object_state(obj_id);
         int frame_idx = inference_state.m_pimpl->next_frame_idx;
 
-
-        
         std::vector<Point> all_points;
         std::vector<BBox> all_boxes;
 
@@ -358,7 +375,6 @@ public:
         }
         auto img_decoder_out = img_decoder_result.value();
 
-
         // Prepare memory encoder inputs
         std::vector<VARP> mec_inputs = {
             img_decoder_out[1],  // mask_for_mem
@@ -367,8 +383,6 @@ public:
 
         if (img_decoder_out.size() > 4) {
             mec_inputs.push_back(img_decoder_out[4]);  // object_score_logits
-        } else {
-            //spdlog::info("no object_score_logits");
         }
 
         // Run memory encoder
@@ -407,9 +421,10 @@ public:
         return std::make_tuple(frame_idx, mask);
     }
 
-    Result<std::tuple<int, std::unordered_map<int, Mask>>> track_step(
+    // Common processing function for track_step
+    Result<std::tuple<int, std::unordered_map<int, Mask>>> process_track_step(
         InferenceState& inference_state,
-        const std::string& image_path
+        const std::tuple<VARP, int, int>& prep_result
     ) {
         auto start_time = std::chrono::high_resolution_clock::now();
 
@@ -421,11 +436,7 @@ public:
         if (inference_state.m_pimpl->cond_frame_embeddings.find(frame_idx) != inference_state.m_pimpl->cond_frame_embeddings.end()) {
             img_encoder_out = inference_state.m_pimpl->cond_frame_embeddings[frame_idx];
         } else {
-            auto prep_result = prepare_image(image_path, &inference_state);
-            if (!prep_result.has_value()) {
-                return Err<std::tuple<int, std::unordered_map<int, Mask>>>(prep_result.error());
-            }
-            auto [img_tensor, h, w] = prep_result.value();
+            auto [img_tensor, h, w] = prep_result;
 
             auto image_encoder_start = std::chrono::high_resolution_clock::now();
             auto embedding_result = sam2_base->run_image_encoder(img_tensor);
@@ -476,7 +487,7 @@ public:
                     pix_feat_with_mem.value()
                 };
 
-                // Initialize empty point coordinates and labels (similar to Python implementation)
+                // Initialize empty point coordinates and labels
                 auto point_coords = dec_inputs[0]->writeMap<float>();
                 std::fill(point_coords, point_coords + 2, 0.0f);  // Initialize to zeros
                 
@@ -549,6 +560,58 @@ public:
 
         return std::make_tuple(frame_idx, outputs);
     }
+
+    Result<std::tuple<int, Mask>> add_new_points_or_box(
+        InferenceState& inference_state,
+        const std::string& image_path,
+        int obj_id,
+        const std::vector<Point>& points,
+        const std::vector<BBox>& boxes,
+        bool clear_old_points
+    ) {
+        auto prep_result = prepare_image(image_path, &inference_state);
+        if (!prep_result.has_value()) {
+            return Err<std::tuple<int, Mask>>(prep_result.error());
+        }
+        return process_add_new_points_or_box(inference_state, prep_result.value(), obj_id, points, boxes, clear_old_points);
+    }
+
+    Result<std::tuple<int, Mask>> add_new_points_or_box(
+        InferenceState& inference_state,
+        const std::vector<uint8_t>& image_buf,
+        int obj_id,
+        const std::vector<Point>& points,
+        const std::vector<BBox>& boxes,
+        bool clear_old_points
+    ) {
+        auto prep_result = prepare_image_buffer(image_buf, &inference_state);
+        if (!prep_result.has_value()) {
+            return Err<std::tuple<int, Mask>>(prep_result.error());
+        }
+        return process_add_new_points_or_box(inference_state, prep_result.value(), obj_id, points, boxes, clear_old_points);
+    }
+
+    Result<std::tuple<int, std::unordered_map<int, Mask>>> track_step(
+        InferenceState& inference_state,
+        const std::string& image_path
+    ) {
+        auto prep_result = prepare_image(image_path, &inference_state);
+        if (!prep_result.has_value()) {
+            return Err<std::tuple<int, std::unordered_map<int, Mask>>>(prep_result.error());
+        }
+        return process_track_step(inference_state, prep_result.value());
+    }
+
+    Result<std::tuple<int, std::unordered_map<int, Mask>>> track_step(
+        InferenceState& inference_state,
+        const std::vector<uint8_t>& image_buf
+    ) {
+        auto prep_result = prepare_image_buffer(image_buf, &inference_state);
+        if (!prep_result.has_value()) {
+            return Err<std::tuple<int, std::unordered_map<int, Mask>>>(prep_result.error());
+        }
+        return process_track_step(inference_state, prep_result.value());
+    }
 };
 
 SAM2Video::SAM2Video() : m_pimpl(std::make_unique<Impl>()) {}
@@ -573,11 +636,29 @@ Result<std::tuple<int, Mask>> SAM2Video::add_new_points_or_box(
     return m_pimpl->add_new_points_or_box(inference_state, image_path, obj_id, points, boxes, clear_old_points);
 }
 
+Result<std::tuple<int, Mask>> SAM2Video::add_new_points_or_box(
+    InferenceState& inference_state,
+    const std::vector<uint8_t>& image_buf,
+    int obj_id,
+    const std::vector<Point>& points,
+    const std::vector<BBox>& boxes,
+    bool clear_old_points
+) {
+    return m_pimpl->add_new_points_or_box(inference_state, image_buf, obj_id, points, boxes, clear_old_points);
+}
+
 Result<std::tuple<int, std::unordered_map<int, Mask>>> SAM2Video::track_step(
     InferenceState& inference_state,
     const std::string& image_path
 ) {
     return m_pimpl->track_step(inference_state, image_path);
+}
+
+Result<std::tuple<int, std::unordered_map<int, Mask>>> SAM2Video::track_step(
+    InferenceState& inference_state,
+    const std::vector<uint8_t>& image_buf
+) {
+    return m_pimpl->track_step(inference_state, image_buf);
 }
 
 } // namespace sam2
